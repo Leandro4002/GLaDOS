@@ -30,7 +30,7 @@ const App = () => {
     powerFactorSpeed: 7.0,
     velocityX: 0, velocityY: 0,
     velocityDecay: 0.6,
-    mouseForce: 1, idleMoveForce: 100,
+    mouseForce: 1, idleMoveForce: 10,
     // positions for different body parts
     spinePosX: 0, spinePosY: 0,
     bodyPosX: 0, bodyPosY: 0,
