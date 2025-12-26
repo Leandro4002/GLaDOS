@@ -30,7 +30,7 @@ const App = () => {
     powerFactorSpeed: 7.0,
     velocityX: 0, velocityY: 0,
     velocityDecay: 0.6,
-    mouseForce: 1,
+    mouseForce: 1, idleMoveForce: 100,
     // positions for different body parts
     spinePosX: 0, spinePosY: 0,
     bodyPosX: 0, bodyPosY: 0,
@@ -39,11 +39,11 @@ const App = () => {
     facePosX: 0, facePosY: 0,
     eyePosX: 0, eyePosY: 0,
     // offsets for different body parts
-    spineOffsetX: 0, spineOffsetY: -20,
+    spineOffsetX: 0, spineOffsetY: -150,
     bodyOffsetX: 0, bodyOffsetY: 30,
     torsoOffsetX: 0, torsoOffsetY: 30,
     headOffsetX: 0, headOffsetY: 20,
-    faceOffsetX: -10, faceOffsetY: 10,
+    faceOffsetX: -20, faceOffsetY: 10,
     eyeOffsetX: 0, eyeOffsetY: 0,
     eyeRedOffsetX: 14, eyeRedOffsetY: 14,
     // limits for different body parts
@@ -51,7 +51,7 @@ const App = () => {
     bodyLimitX: 30, bodyLimitY: 30,
     torsoLimitX: 70, torsoLimitY: 10,
     headLimitX: 60, headLimitY: 65,
-    faceLimitX: 20, faceLimitY: 30,
+    faceLimitX: 23, faceLimitY: 30,
     eyeLimitX: 12, eyeLimitY: 40,
     velocityLimit: 100,
     // size of different body parts
@@ -62,12 +62,37 @@ const App = () => {
     faceWidth: 67, faceHeight: 143,
     eyeRadius: 20, eyeRedRadius: 5,
     headAngle: 0, torsoAngle: 0, spineAngle: 0,
+    eyesPosScalarX: 0.25, eyesPosScalarY: 0.7,
     headAngleLimit: 0.8, torsoAngleLimit: 0.4, spineAngleLimit: 0.2,
-    headAngleScalar: 0.008, torsoAngleScalar: 0.005, spineAngleScalar: 0.0003,
+    headAngleScalar: 0.008, torsoAngleScalar: 0.005, spineAngleScalar: 0.0008,
     blinkSpeed: 0.1, blinkTime: 0.2, blinkDelay: 0,
     redBlinkTime: 0.1, redBlinkDelay: 0,
     blink_function: () => {},
     redBlink_function: () => {},
+    noise_function: (() => {
+      const perm = new Uint8Array(512)
+      for (let i = 0; i < 256; i++) perm[i] = i
+      for (let i = 255; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[perm[i], perm[j]] = [perm[j], perm[i]]
+      }
+      for (let i = 0; i < 256; i++) perm[256 + i] = perm[i]
+
+      const fade = t => t * t * t * (t * (t * 6 - 15) + 10)
+      const grad = (hash, x) => ((hash & 1) === 0 ? x : -x)
+
+      return x => {
+        const xi = Math.floor(x) & 255
+        const xf = x - Math.floor(x)
+
+        const g1 = grad(perm[xi], xf)
+        const g2 = grad(perm[xi + 1], xf - 1)
+
+        const u = fade(xf)
+
+        return (g1 + u * (g2 - g1) + 1) / 2 // normalize 0..1
+      }
+    })(),
     blinkCooldownDuration: 3.0, blinkCooldownJitterDuration: 1.0,
     redBlinkCooldownDuration: 0.2, redBlinkCooldownJitterDuration: 5.0,
   })
@@ -140,11 +165,21 @@ const App = () => {
     if (delta > 1) return // skip large deltas
 
     const g = glados.current
+
+    const randAngle = g.noise_function(now / 1000) * Math.PI * 2
     
-    // glados tries to go back to center
     if (g.poweredOn) {
+      // glados tries to go back to center
       g.velocityX += -g.spinePosX * g.mouseForce * delta
       g.velocityY += -g.spinePosY * g.mouseForce * delta
+
+      // glados idle movements
+      g.velocityX += Math.cos(randAngle) * delta * g.idleMoveForce
+      g.velocityY += Math.sin(randAngle) * delta * g.idleMoveForce
+
+      // glados talks
+      // g.velocityX += Math.sin(now / 500) * delta * 50
+      // g.velocityY += Math.sin(now / 100) * delta * 100
     }
 
     // apply velocity decay
@@ -180,21 +215,20 @@ const App = () => {
 
     g.facePosX += g.velocityX * delta
     g.facePosY += g.velocityY * delta
-    g.facePosX = Math.max(-g.faceLimitX - g.faceOffsetX, Math.min(g.faceLimitX - g.faceOffsetX, g.facePosX))
+    // This is not an error, is just to make the face of glados slightly offset to the left
+    g.facePosX = Math.max(-g.faceLimitX - g.faceOffsetX, Math.min(g.faceLimitX, g.facePosX))
     g.facePosY = Math.max(-g.faceLimitY, Math.min(g.faceLimitY, g.facePosY))
 
-    // g.eyePosX += g.velocityX * delta
-    // g.eyePosY += g.velocityY * delta
-    g.eyePosX = g.velocityX * 0.1
-    g.eyePosY = g.velocityY * 0.5
+    g.eyePosX = g.velocityX * g.eyesPosScalarX
+    g.eyePosY = g.velocityY * g.eyesPosScalarY
     g.eyePosX = Math.max(-g.eyeLimitX, Math.min(g.eyeLimitX, g.eyePosX))
     g.eyePosY = Math.max(-g.eyeLimitY, Math.min(g.eyeLimitY, g.eyePosY))
 
     g.headAngle = g.velocityX * g.headAngleScalar
     g.torsoAngle = g.velocityX * g.torsoAngleScalar
-    g.spineAngle = -g.velocityX * g.spineAngleScalar
-    // g.headAngle = Math.max(-g.headAnglehttps://www.youtube.com/Limit, Math.min(g.headAngleLimit, g.headAngle))
-    // g.torsoAngle = Math.max(-g.torsoAngleLimit, Math.min(g.torsoAngleLimit, g.torsoAngle))
+    g.spineAngle = g.velocityX * g.spineAngleScalar
+    g.headAngle = Math.max(-g.headAngleLimit, Math.min(g.headAngleLimit, g.headAngle))
+    g.torsoAngle = Math.max(-g.torsoAngleLimit, Math.min(g.torsoAngleLimit, g.torsoAngle))
 
     // Handle blink timers
     if (g.blinkDelay > 0) {
