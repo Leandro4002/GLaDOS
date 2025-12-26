@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "DIN Bold";
+  src: url("/DIN Bold.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+}
+
 body {
+	font-family: "DIN Bold", sans-serif;
 	@apply h-full;
 }

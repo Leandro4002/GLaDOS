@@ -2,7 +2,7 @@
 declare global {
   interface CanvasRenderingContext2D {
     drawLight(x: number, y: number, radius: number, color: string, step?: number): void;
-    drawRoundedRect(x: number, y: number, width: number, height: number, radius: number, colorTop: string, colorBottom: string, strokeColor?: string | null, gradientType?: string, topRadius?: number): void;
+    drawRoundedRect(x: number, y: number, width: number, height: number, angle: number, radius: number, colorTop: string, colorBottom: string, strokeColor?: string | null, gradientType?: string, topRadius?: number, bottomRotation?: boolean): void;
     drawCircle(x: number, y: number, radius: number, color: string): void;
   }
 }
@@ -18,9 +18,22 @@ CanvasRenderingContext2D.prototype.drawLight = function (this: CanvasRenderingCo
   this.fill();
 };
 
-CanvasRenderingContext2D.prototype.drawRoundedRect = function (this: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number, colorTop: string, colorBottom: string, strokeColor: string | null = null, gradientType: string = 'linear', topRadius: number = NaN) {
+CanvasRenderingContext2D.prototype.drawRoundedRect = function (this: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, angle: number, radius: number, colorTop: string, colorBottom: string, strokeColor: string | null = null, gradientType: string = 'linear', topRadius: number = NaN, bottomRotation: boolean = false) {
   if (radius > width / 2) radius = width / 2;
   if (radius > height / 2) radius = height / 2;
+
+  // Apply rotation
+  this.save()
+  const cx = x + width / 2
+  let cy
+  if (bottomRotation) {
+    cy = y + height
+  } else {
+    cy = y + height / 2
+  }
+  this.translate(cx, cy)
+  this.rotate(angle)
+  this.translate(-cx, -cy)
 
   // Create linear gradient from top to bottom
   let gradient = null
@@ -63,6 +76,8 @@ CanvasRenderingContext2D.prototype.drawRoundedRect = function (this: CanvasRende
     this.strokeStyle = strokeColor;
     this.stroke();
   }
+
+  this.restore()
 };
 
 CanvasRenderingContext2D.prototype.drawCircle = function (this: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string) {
