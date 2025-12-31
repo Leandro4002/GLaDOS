@@ -4,6 +4,7 @@ import './App.css'
 import assert from 'assert-ts'
 
 const App = () => {
+  const loopFrequency = 30 // in Hz
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [canvasCtx, setCanvasCtx] = useState<CanvasRenderingContext2D>()
   const [audioCtx, setAudioCtx] = useState<AudioContext | null>(null)
@@ -16,7 +17,7 @@ const App = () => {
   const dbg = useRef({
     show: true,
     showPoints: false,
-    showVelocity: true,
+    showVelocity: false,
   })
   const showDebugPoints = useRef(false)
   const showDebugVelocity = useRef(true)
@@ -69,6 +70,9 @@ const App = () => {
     redBlinkTime: 0.1, redBlinkDelay: 0,
     blink_function: () => {},
     redBlink_function: () => {},
+    // This is not a great noise function.
+    // - It oscillates between 0.2 and 0.8 instead of 0 and 1.
+    // - The first values are always between 0.4 and 0.6
     noise_function: (() => {
       const perm = new Uint8Array(512)
       for (let i = 0; i < 256; i++) perm[i] = i
@@ -97,7 +101,9 @@ const App = () => {
     redBlinkCooldownDuration: 0.2, redBlinkCooldownJitterDuration: 5.0,
   })
 
-  const { transcript, browserSupportsSpeechRecognition } = useSpeechRecognition()
+  const { resetTranscript, listening, transcript, browserSupportsSpeechRecognition, browserSupportsContinuousListening } = useSpeechRecognition()
+
+  const capitalize = str => str ? str[0].toUpperCase() + str.slice(1) : str;
 
   const lerpColor = (a: string, b: string, t: number) => {
     const ah = parseInt(a.replace('#',''), 16)
@@ -166,14 +172,18 @@ const App = () => {
 
     const g = glados.current
 
-    const randAngle = g.noise_function(now / 1000) * Math.PI * 2
-    
+    // The noise function used is not perfect. This will produce a "random angle" that is biased
+    // We make so that the biais is downards, this way it simulates a bit gravity
+    const randAngle = (g.noise_function(now / 1000) - 0.5) * Math.PI * 2 + Math.PI / 2
+
     if (g.poweredOn) {
       // glados tries to go back to center
       g.velocityX += -g.spinePosX * g.mouseForce * delta
       g.velocityY += -g.spinePosY * g.mouseForce * delta
 
       // glados idle movements
+      // We use - for sin so at first start it moves up
+      // (we utilize the fact that the noise function starts at ~0.5)
       g.velocityX += Math.cos(randAngle) * delta * g.idleMoveForce
       g.velocityY += Math.sin(randAngle) * delta * g.idleMoveForce
 
@@ -192,7 +202,7 @@ const App = () => {
       g.velocityX = (g.velocityX / velocity) * g.velocityLimit
       g.velocityY = (g.velocityY / velocity) * g.velocityLimit
     }
-
+    
     g.spinePosX += g.velocityX * delta
     g.spinePosY += g.velocityY * delta
     g.spinePosX = Math.max(-g.spineLimitX, Math.min(g.spineLimitX, g.spinePosX))
@@ -379,38 +389,44 @@ const App = () => {
       // Stop
       g.audioStop?.play()
       g.poweredOn = false
-      stopListening()
-      if (mediaStream) {
-        mediaStream.getTracks().forEach(t => t.stop())
-        setMediaStream(null)
-      }
-      if (audioCtx) {
-        audioCtx.close()
-        setAudioCtx(null)
-      }
-      setAnalyser(null)
+      resetTranscript()
+      SpeechRecognition.stopListening().then(async () => {
+        await SpeechRecognition.abortListening()
+        console.log("Speech recognition stopped")
+      })
+      // if (mediaStream) {
+      //   mediaStream.getTracks().forEach(t => t.stop())
+      //   setMediaStream(null)
+      // }
+      // if (audioCtx) {
+      //   audioCtx.close()
+      //   setAudioCtx(null)
+      // }
+      // setAnalyser(null)
     } else {
       // Start
       g.audioStart?.play()
       g.poweredOn = true
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const context = new AudioContext()
-      const analyzer = context.createAnalyser()
-      analyzer.fftSize = 2048
-      const srcNode = context.createMediaStreamSource(stream)
-      srcNode.connect(analyzer)
-      setAudioCtx(context)
-      setAnalyser(analyzer)
-      setMediaStream(stream)
+      SpeechRecognition.getRecognition()?.addEventListener('result', (e: SpeechRecognitionEvent) => {
+        if (e.results[e.resultIndex].isFinal) {
+          console.log(e.results[e.resultIndex][0].transcript)
+          // Add a small delay before resetting the transcript to allow user to see what was recognized
+          setTimeout(resetTranscript, 1000)
+        }
+      })
+      SpeechRecognition.startListening({ continuous: true, language: 'fr-FR' }).then(() => {
+        console.log("Speech recognition started")
+      })
+      // const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // const context = new AudioContext()
+      // const analyzer = context.createAnalyser()
+      // analyzer.fftSize = 2048
+      // const srcNode = context.createMediaStreamSource(stream)
+      // srcNode.connect(analyzer)
+      // setAudioCtx(context)
+      // setAnalyser(analyzer)
+      // setMediaStream(stream)
     }
-  }
-
-  const startListening = () => {
-    SpeechRecognition.startListening({ continuous: true, language: 'en-US' })
-  }
-
-  const stopListening = () => {
-    SpeechRecognition.stopListening()
   }
 
   const resizeCanvas = () => {
@@ -444,7 +460,7 @@ const App = () => {
   useEffect(() => {
     if (!canvasCtx) return
     draw()
-    setIntervalId(window.setInterval(loop, 30))
+    setIntervalId(window.setInterval(loop, 1000/loopFrequency))
     resizeCanvas();
     const g = glados.current
     g.audioStart = new Audio(`/glados_start.ogg`)
@@ -487,6 +503,10 @@ const App = () => {
     return <p>Your browser does not support speech recognition.</p>
   }
 
+  if (!browserSupportsContinuousListening) {
+    return <p>Your browser does not support continuous speech recognition.</p>
+  }
+
   const g = glados.current
 
   return (
@@ -506,11 +526,17 @@ const App = () => {
           <p>analyzer.fftSize: {analyser?.fftSize}</p>
           <p>Volume: {volume}</p>
           <p>Pitch: {pitch} Hz</p>
-          <p>User transcript: {transcript}</p>
-          <p>GLaDOS transcript: {transcript}</p>
+          <p>Listening : {listening.toString()}</p>
+          <p>GLaDOS transcript: no</p>
           <label>Draw debug points: <input checked={dbg.current.showPoints} onChange={(e) => dbg.current.showPoints = e.target.checked} type='checkbox'/></label><br/>
           <label>Draw debug velocity: <input checked={dbg.current.showVelocity} onChange={(e) => dbg.current.showVelocity = e.target.checked} type='checkbox'/></label>
         </div>)
+      }
+      {
+        transcript &&
+        <div className="absolute bottom-32 left-1/2 transform -translate-x-1/2 text-[#dddddd] rounded-md p-4 max-w-xl text-center text-3xl">
+          { capitalize(transcript) }
+        </div>
       }
       <button data-is-recording={glados.current.poweredOn} onClick={buttonClick} className="main-button">
         {glados.current.poweredOn ? 'STOP' : 'START'}
